@@ -41,6 +41,8 @@ namespace System.Data
 	{
 		public static DataView AsDataView (this DataTable table)
 		{
+			if(table != null && table.Rows.Count == 0)
+				return table.DefaultView;
 			return AsDataView<DataRow> (table.AsEnumerable ());
 		}
 
