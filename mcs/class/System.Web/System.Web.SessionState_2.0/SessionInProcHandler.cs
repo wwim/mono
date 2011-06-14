@@ -44,7 +44,14 @@ namespace System.Web.SessionState
 	{
 		public bool locked;
 		public bool cookieless;
-		public ISessionStateItemCollection items;
+		public ISessionStateItemCollection items1;
+		public ISessionStateItemCollection items
+		{
+			get { return items1; }
+			set { if( value != null )
+				items1 = value;
+			    }
+		}
 		public DateTime lockedTime;
 		public DateTime expiresAt;
 		public ReaderWriterLockSlim rwlock;
@@ -57,7 +64,7 @@ namespace System.Web.SessionState
 		{
 			this.locked = false;
 			this.cookieless = false;
-			this.items = null;
+			this.items1 = null;
 			this.staticItems = null;
 			this.lockedTime = DateTime.MinValue;
 			this.expiresAt = DateTime.MinValue;
