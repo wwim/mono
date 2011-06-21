@@ -43,12 +43,12 @@ namespace System.Web.SessionState
 	{
 		public bool locked;
 		public bool cookieless;
-		public ISessionStateItemCollection items1;
+		public ISessionStateItemCollection __items;
 		public ISessionStateItemCollection items
 		{
-			get { return items1; }
+			get { return __items; }
 			set { if(value != null) 
-				items1=value;
+				__items=value;
 			    }
 		}	
 		public DateTime lockedTime;
@@ -63,7 +63,7 @@ namespace System.Web.SessionState
 		{
 			this.locked = false;
 			this.cookieless = false;
-			this.items1 = null;
+			this.__items = null;
 			this.staticItems = null;
 			this.lockedTime = DateTime.MinValue;
 			this.expiresAt = DateTime.MinValue;
