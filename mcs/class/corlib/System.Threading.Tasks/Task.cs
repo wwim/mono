@@ -68,6 +68,9 @@ namespace System.Threading.Tasks
 
 		CancellationToken token;
 
+		const TaskCreationOptions MaxTaskCreationOptions =
+			TaskCreationOptions.PreferFairness | TaskCreationOptions.LongRunning | TaskCreationOptions.AttachedToParent;
+
 		public Task (Action action) : this (action, TaskCreationOptions.None)
 		{
 			
@@ -104,11 +107,14 @@ namespace System.Threading.Tasks
 		
 		public Task (Action<object> action, object state, CancellationToken cancellationToken, TaskCreationOptions creationOptions)
 		{
+			if (creationOptions > MaxTaskCreationOptions || creationOptions < TaskCreationOptions.None)
+				throw new ArgumentOutOfRangeException ("creationOptions");
+
 			this.taskCreationOptions = creationOptions;
 			this.action              = action == null ? EmptyFunc : action;
 			this.state               = state;
 			this.taskId              = Interlocked.Increment (ref id);
-			this.status              = TaskStatus.Created;
+			this.status              = cancellationToken.IsCancellationRequested ? TaskStatus.Canceled : TaskStatus.Created;
 			this.token               = cancellationToken;
 
 			// Process taskCreationOptions
@@ -142,6 +148,8 @@ namespace System.Threading.Tasks
 		
 		public void Start (TaskScheduler scheduler)
 		{
+			if (status >= TaskStatus.WaitingToRun)
+				throw new InvalidOperationException ("The Task is not in a valid state to be started.");
 			SetupScheduler (scheduler);
 			Schedule ();
 		}
@@ -234,7 +242,7 @@ namespace System.Threading.Tasks
 		
 		internal void ContinueWithCore (Task continuation, TaskContinuationOptions continuationOptions, TaskScheduler scheduler)
 		{
-			ContinueWithCore (continuation, continuationOptions, scheduler, () => true);
+			ContinueWithCore (continuation, continuationOptions, scheduler, null);
 		}
 		
 		internal void ContinueWithCore (Task continuation, TaskContinuationOptions kind,
@@ -247,8 +255,8 @@ namespace System.Threading.Tasks
 			
 			AtomicBoolean launched = new AtomicBoolean ();
 			EventHandler action = delegate (object sender, EventArgs e) {
-				if (!launched.Value && launched.TrySet ()) {
-					if (!predicate ())
+				if (launched.TryRelaxedSet ()) {
+					if (predicate != null && !predicate ())
 						return;
 
 					if (!ContinuationStatusCheck (kind)) {

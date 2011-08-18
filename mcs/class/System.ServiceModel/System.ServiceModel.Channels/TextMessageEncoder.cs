@@ -66,7 +66,7 @@ namespace System.ServiceModel.Channels
 		{
 			if (bufferManager == null)
 				throw new ArgumentNullException ("bufferManager");
-			return Message.CreateMessage (
+			var ret = Message.CreateMessage (
 				XmlDictionaryReader.CreateDictionaryReader (
 					XmlReader.Create (new StreamReader (
 						new MemoryStream (
@@ -75,6 +75,8 @@ namespace System.ServiceModel.Channels
 				// FIXME: supply max header size
 				int.MaxValue,
 				version);
+			FillActionContentType (ret, contentType);
+			return ret;
 		}
 
 		public override Message ReadMessage (Stream stream,
@@ -82,11 +84,23 @@ namespace System.ServiceModel.Channels
 		{
 			if (stream == null)
 				throw new ArgumentNullException ("stream");
-			return Message.CreateMessage (
+			var ret = Message.CreateMessage (
 				XmlDictionaryReader.CreateDictionaryReader (
 					XmlReader.Create (new StreamReader (stream, encoding))),
 				maxSizeOfHeaders,
 				version);
+			ret.Properties.Encoder = this;
+			FillActionContentType (ret, contentType);
+			return ret;
+		}
+		
+		void FillActionContentType (Message msg, string contentType)
+		{
+			if (contentType.StartsWith ("application/soap+xml", StringComparison.Ordinal)) {
+				var ct = new ContentType (contentType);
+				if (ct.Parameters.ContainsKey ("action"))
+					msg.Headers.Action = ct.Parameters ["action"];
+			}
 		}
 
 		public override void WriteMessage (Message message, Stream stream)

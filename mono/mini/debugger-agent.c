@@ -5,6 +5,7 @@
  *   Zoltan Varga (vargaz@gmail.com)
  *
  * Copyright 2009-2010 Novell, Inc.
+ * Copyright 2011 Xamarin Inc.
  */
 
 #include <config.h>
@@ -514,6 +515,16 @@ typedef struct {
 
 #define DEBUG(level,s) do { if (G_UNLIKELY ((level) <= log_level)) { s; fflush (log_file); } } while (0)
 
+#ifdef TARGET_WIN32
+#define get_last_sock_error() WSAGetLastError()
+#define MONO_EWOULDBLOCK WSAEWOULDBLOCK
+#define MONO_EINTR WSAEINTR
+#else
+#define get_last_sock_error() errno
+#define MONO_EWOULDBLOCK EWOULDBLOCK
+#define MONO_EINTR EINTR
+#endif
+
 /*
  * Globals
  */
@@ -985,11 +996,11 @@ recv_length (int fd, void *buf, int len, int flags)
 		res = recv (fd, (char *) buf + total, len - total, flags);
 		if (res > 0)
 			total += res;
-		if (agent_config.keepalive && res == -1 && errno == EWOULDBLOCK) {
+		if (agent_config.keepalive && res == -1 && get_last_sock_error () == MONO_EWOULDBLOCK) {
 			process_profiler_event (EVENT_KIND_KEEPALIVE, NULL);
 			goto again;
 		}
-	} while ((res > 0 && total < len) || (res == -1 && errno == EINTR));
+	} while ((res > 0 && total < len) || (res == -1 && get_last_sock_error () == MONO_EINTR));
 	return total;
 }
 
@@ -1075,7 +1086,7 @@ transport_connect (const char *host, int port)
 			/* This will bind the socket to a random port */
 			res = listen (sfd, 16);
 			if (res == -1) {
-				fprintf (stderr, "debugger-agent: Unable to setup listening socket: %s\n", strerror (errno));
+				fprintf (stderr, "debugger-agent: Unable to setup listening socket: %s\n", strerror (get_last_sock_error ()));
 				exit (1);
 			}
 
@@ -1238,7 +1249,7 @@ transport_send (guint8 *data, int len)
 
 	do {
 		res = send (conn_fd, data, len, 0);
-	} while (res == -1 && errno == EINTR);
+	} while (res == -1 && get_last_sock_error () == MONO_EINTR);
 	if (res != len)
 		return FALSE;
 	else
@@ -2054,7 +2065,12 @@ mono_debugger_agent_thread_interrupt (void *sigctx, MonoJitInfo *ji)
 			data.last_frame_set = FALSE;
 			if (sigctx) {
 				mono_arch_sigctx_to_monoctx (sigctx, &ctx);
-				mono_walk_stack (get_last_frame, mono_domain_get (), &ctx, MONO_UNWIND_DEFAULT, tls->thread, mono_get_lmf (), &data);
+				/* 
+				 * Don't pass MONO_UNWIND_ACTUAL_METHOD, its not signal safe, and
+				 * get_last_frame () doesn't need it, the last frame cannot be a ginst
+				 * since we are not in a JITted method.
+				 */
+				mono_walk_stack (get_last_frame, mono_domain_get (), &ctx, MONO_UNWIND_NONE, tls->thread, mono_get_lmf (), &data);
 			}
 			if (data.last_frame_set) {
 				memcpy (&tls->async_last_frame, &data.last_frame, sizeof (StackFrameInfo));

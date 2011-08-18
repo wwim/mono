@@ -4,7 +4,8 @@
  * Author:
  * 	Paolo Molaro (lupus@ximian.com)
  *
- * Copyright 2005-2010 Novell, Inc (http://www.novell.com)
+ * Copyright 2005-2011 Novell, Inc (http://www.novell.com)
+ * Copyright 2011 Xamarin, Inc (http://www.xamarin.com)
  *
  * Thread start/stop adapted from Boehm's GC:
  * Copyright (c) 1994 by Xerox Corporation.  All rights reserved.
@@ -4109,6 +4110,9 @@ finalize_in_range (CopyOrMarkObjectFunc copy_func, char *start, char *end, int g
 				if (is_fin_ready) {
 					char *from;
 					FinalizeEntry *next;
+					/* Make it survive */
+					from = entry->object;
+					entry->object = copy;
 					/* remove and put in fin_ready_list */
 					if (prev)
 						prev->next = entry->next;
@@ -4119,9 +4123,6 @@ finalize_in_range (CopyOrMarkObjectFunc copy_func, char *start, char *end, int g
 					hash_table->num_registered--;
 					queue_finalization_entry (entry);
 					bridge_register_finalized_object ((MonoObject*)copy);
-					/* Make it survive */
-					from = entry->object;
-					entry->object = copy;
 					DEBUG (5, fprintf (gc_debug_file, "Queueing object for finalization: %p (%s) (was at %p) (%d/%d)\n", entry->object, safe_name (entry->object), from, num_ready_finalizers, hash_table->num_registered));
 					entry = next;
 					continue;

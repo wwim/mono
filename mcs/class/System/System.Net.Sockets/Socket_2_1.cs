@@ -573,6 +573,11 @@ namespace System.Net.Sockets {
 #if !MOONLIGHT
 				bool is_mconnect = (mconnect != null && mconnect.Addresses != null);
 #else
+				if (result.ErrorCode == SocketError.AccessDenied) {
+					result.Complete ();
+					result.DoMConnectCallback ();
+					return;
+				}
 				bool is_mconnect = false;
 #endif
 				try {
@@ -1590,7 +1595,7 @@ namespace System.Net.Sockets {
 			// Connect to the first address that match the host name, like:
 			// http://blogs.msdn.com/ncl/archive/2009/07/20/new-ncl-features-in-net-4-0-beta-2.aspx
 			// while skipping entries that do not match the address family
-			DnsEndPoint dep = (RemoteEndPoint as DnsEndPoint);
+			DnsEndPoint dep = (e.RemoteEndPoint as DnsEndPoint);
 			if (dep != null) {
 				addresses = Dns.GetHostAddresses (dep.Host);
 				IPEndPoint endpoint;
@@ -1605,6 +1610,8 @@ namespace System.Net.Sockets {
 							continue;
 						valid.Add (a);
 					}
+					if (valid.Count == 0)
+		 				e.SocketError = SocketError.AccessDenied;
 					addresses = valid.ToArray ();
 				}
 #endif
@@ -1613,8 +1620,10 @@ namespace System.Net.Sockets {
 				e.ConnectByNameError = null;
 #if MOONLIGHT && !INSIDE_SYSTEM
 				if (!e.PolicyRestricted && !SecurityManager.HasElevatedPermissions) {
-					if (CrossDomainPolicyManager.CheckEndPoint (RemoteEndPoint, e.SocketClientAccessPolicyProtocol))
+					if (CrossDomainPolicyManager.CheckEndPoint (e.RemoteEndPoint, e.SocketClientAccessPolicyProtocol))
 						return false;
+		 			else
+						e.SocketError = SocketError.AccessDenied;
 				} else
 #endif
 					return false;
@@ -1631,11 +1640,23 @@ namespace System.Net.Sockets {
 			bool use_remoteep = true;
 #if MOONLIGHT || NET_4_0
 			use_remoteep = !GetCheckedIPs (e, out addresses);
+			bool policy_failed = (e.SocketError == SocketError.AccessDenied);
 #endif
 			e.curSocket = this;
 			Worker w = e.Worker;
 			w.Init (this, e, SocketOperation.Connect);
 			SocketAsyncResult result = w.result;
+#if MOONLIGHT
+			if (policy_failed) {
+				// SocketAsyncEventArgs.Completed must be called
+				connected = false;
+				result.EndPoint = e.RemoteEndPoint;
+				result.error = (int) SocketError.AccessDenied;
+				result.Complete ();
+				socket_pool_queue (Worker.Dispatcher, result);
+				return true;
+			}
+#endif
 			IAsyncResult ares = null;
 			try {
 				if (use_remoteep) {
@@ -1699,6 +1720,9 @@ namespace System.Net.Sockets {
 			if ((raf != AddressFamily.Unspecified) && (raf != AddressFamily))
 				throw new NotSupportedException ("AddressFamily mismatch between socket and endpoint");
 
+			// connected, not yet connected or even policy denied, the Socket.RemoteEndPoint is always 
+			// available after the ConnectAsync call
+			seed_endpoint = e.RemoteEndPoint;
 			return ConnectAsyncReal (e);
 		}
 
@@ -1792,6 +1816,11 @@ namespace System.Net.Sockets {
 
 			for(int i = 0; i < numsegments; i++) {
 				ArraySegment<byte> segment = buffers[i];
+
+				if (segment.Offset < 0 || segment.Count < 0 ||
+				    segment.Count > segment.Array.Length - segment.Offset)
+					throw new ArgumentOutOfRangeException ("segment");
+
 				gch[i] = GCHandle.Alloc (segment.Array, GCHandleType.Pinned);
 				bufarray[i].len = segment.Count;
 				bufarray[i].buf = Marshal.UnsafeAddrOfPinnedArrayElement (segment.Array, segment.Offset);
@@ -1869,6 +1898,11 @@ namespace System.Net.Sockets {
 			GCHandle[] gch = new GCHandle[numsegments];
 			for(int i = 0; i < numsegments; i++) {
 				ArraySegment<byte> segment = buffers[i];
+
+				if (segment.Offset < 0 || segment.Count < 0 ||
+				    segment.Count > segment.Array.Length - segment.Offset)
+					throw new ArgumentOutOfRangeException ("segment");
+
 				gch[i] = GCHandle.Alloc (segment.Array, GCHandleType.Pinned);
 				bufarray[i].len = segment.Count;
 				bufarray[i].buf = Marshal.UnsafeAddrOfPinnedArrayElement (segment.Array, segment.Offset);

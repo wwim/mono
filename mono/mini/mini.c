@@ -7,6 +7,7 @@
  *
  * Copyright 2002-2003 Ximian, Inc.
  * Copyright 2003-2010 Novell, Inc.
+ * Copyright 2011 Xamarin, Inc (http://www.xamarin.com)
  */
 
 #define MONO_LLVM_IN_MINI 1
@@ -2625,6 +2626,15 @@ mono_thread_abort (MonoObject *obj)
 			(obj->vtable->klass == mono_defaults.threadabortexception_class)) {
 		mono_thread_exit ();
 	} else {
+		MonoObject *other = NULL;
+		MonoString *str = mono_object_to_string (obj, &other);
+		if (str) {
+			char *msg = mono_string_to_utf8 (str);
+			fprintf (stderr, "[ERROR] FATAL UNHANDLED EXCEPTION: %s\n", msg);
+			fflush (stderr);
+			g_free (msg);
+		}
+
 		exit (mono_environment_exitcode_get ());
 	}
 }
@@ -2730,9 +2740,12 @@ mini_thread_cleanup (MonoInternalThread *thread)
 		 *
 		 * The current offender is mono_thread_manage which cleanup threads from the outside.
 		 */
-		if (thread == mono_thread_internal_current ()) {
-			mono_set_lmf (NULL);
+		if (thread == mono_thread_internal_current ())
 			mono_set_jit_tls (NULL);
+
+		/* If we attach a thread but never call into managed land, we might never get an lmf.*/
+		if (mono_get_lmf ()) {
+			mono_set_lmf (NULL);
 			mono_set_lmf_addr (NULL);
 		}
 
